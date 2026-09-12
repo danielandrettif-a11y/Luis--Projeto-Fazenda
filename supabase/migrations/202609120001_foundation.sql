@@ -133,4 +133,101 @@ begin
 end;
 $$;
 
+-- Remove inherited PUBLIC and Supabase default privileges before granting the
+-- precise client operations. Membership writes are reserved for server workflows.
+revoke all on all tables in schema public from public, anon;
+revoke all on all sequences in schema public from public, anon;
+revoke all on public.accounts, public.memberships, public.farms,
+  public.paddocks, public.management_groups, public.audit_logs from authenticated;
+grant usage on schema public to authenticated;
+grant select, update on public.accounts to authenticated;
 grant select on public.memberships to authenticated;
+grant select, insert, update, delete on public.farms, public.paddocks,
+  public.management_groups to authenticated;
+grant select, insert on public.audit_logs to authenticated;
+
+revoke all on function public.current_user_id(), public.is_account_member(uuid),
+  public.is_account_admin(uuid), public.bootstrap_account(text, text) from public, anon;
+grant execute on function public.current_user_id(), public.is_account_member(uuid),
+  public.is_account_admin(uuid), public.bootstrap_account(text, text) to authenticated;
+
+-- SECURITY DEFINER helpers and bootstrap must be owned by the trusted migration
+-- role with BYPASSRLS (Supabase postgres), so FORCE RLS neither recurses through
+-- membership helpers nor prevents creation of the initial account/membership.
+alter table public.accounts enable row level security;
+alter table public.accounts force row level security;
+alter table public.memberships enable row level security;
+alter table public.memberships force row level security;
+alter table public.farms enable row level security;
+alter table public.farms force row level security;
+alter table public.paddocks enable row level security;
+alter table public.paddocks force row level security;
+alter table public.management_groups enable row level security;
+alter table public.management_groups force row level security;
+alter table public.audit_logs enable row level security;
+alter table public.audit_logs force row level security;
+
+create policy accounts_read on public.accounts
+  for select to authenticated
+  using (public.is_account_member(id));
+
+create policy accounts_update on public.accounts
+  for update to authenticated
+  using (public.is_account_admin(id))
+  with check (public.is_account_admin(id));
+
+create policy memberships_read_own on public.memberships
+  for select to authenticated
+  using (user_id = public.current_user_id());
+
+create policy farms_read on public.farms
+  for select to authenticated
+  using (public.is_account_member(account_id));
+create policy farms_insert on public.farms
+  for insert to authenticated
+  with check (public.is_account_admin(account_id));
+create policy farms_update on public.farms
+  for update to authenticated
+  using (public.is_account_admin(account_id))
+  with check (public.is_account_admin(account_id));
+create policy farms_delete on public.farms
+  for delete to authenticated
+  using (public.is_account_admin(account_id));
+
+create policy paddocks_read on public.paddocks
+  for select to authenticated
+  using (public.is_account_member(account_id));
+create policy paddocks_insert on public.paddocks
+  for insert to authenticated
+  with check (public.is_account_admin(account_id));
+create policy paddocks_update on public.paddocks
+  for update to authenticated
+  using (public.is_account_admin(account_id))
+  with check (public.is_account_admin(account_id));
+create policy paddocks_delete on public.paddocks
+  for delete to authenticated
+  using (public.is_account_admin(account_id));
+
+create policy management_groups_read on public.management_groups
+  for select to authenticated
+  using (public.is_account_member(account_id));
+create policy management_groups_insert on public.management_groups
+  for insert to authenticated
+  with check (public.is_account_admin(account_id));
+create policy management_groups_update on public.management_groups
+  for update to authenticated
+  using (public.is_account_admin(account_id))
+  with check (public.is_account_admin(account_id));
+create policy management_groups_delete on public.management_groups
+  for delete to authenticated
+  using (public.is_account_admin(account_id));
+
+create policy audit_logs_read on public.audit_logs
+  for select to authenticated
+  using (public.is_account_admin(account_id));
+create policy audit_logs_insert on public.audit_logs
+  for insert to authenticated
+  with check (
+    public.is_account_member(account_id)
+    and actor_user_id = public.current_user_id()
+  );

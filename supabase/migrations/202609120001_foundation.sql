@@ -54,13 +54,93 @@ create table public.management_groups (
 create table public.audit_logs (
   id uuid primary key default gen_random_uuid(),
   account_id uuid not null references public.accounts(id) on delete restrict,
-  actor_user_id uuid not null references auth.users(id) on delete restrict,
+  -- NULL means a trusted server operation without a user JWT, never a guessed actor.
+  actor_user_id uuid references auth.users(id) on delete restrict,
   action text not null,
   entity_type text not null,
   entity_id uuid not null,
   details jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
+
+-- Timestamps belong to the database. Keep tenant ownership stable so an audit
+-- snapshot can never move into another tenant's readable history.
+create function public.stamp_foundation_row()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if TG_OP = 'INSERT' then
+    NEW.created_at := pg_catalog.clock_timestamp();
+  else
+    if pg_catalog.to_jsonb(NEW)->'id' is distinct from pg_catalog.to_jsonb(OLD)->'id'
+      or pg_catalog.to_jsonb(NEW)->'user_id' is distinct from pg_catalog.to_jsonb(OLD)->'user_id' then
+      raise exception 'A identidade do registro não pode ser alterada.' using errcode = '42501';
+    end if;
+    if pg_catalog.to_jsonb(NEW)->'account_id' is distinct from pg_catalog.to_jsonb(OLD)->'account_id' then
+      raise exception 'A conta do registro não pode ser alterada.' using errcode = '42501';
+    end if;
+    NEW.created_at := OLD.created_at;
+  end if;
+  if TG_TABLE_NAME <> 'memberships' then
+    NEW.updated_at := pg_catalog.clock_timestamp();
+  end if;
+  return NEW;
+end;
+$$;
+
+-- Only installed row triggers invoke this function. No client-supplied actor,
+-- action or details are accepted; RLS/constraints and audit share one transaction.
+create function public.audit_foundation_row()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  old_row jsonb;
+  new_row jsonb;
+  target_row jsonb;
+begin
+  if TG_OP <> 'INSERT' then old_row := pg_catalog.to_jsonb(OLD); end if;
+  if TG_OP <> 'DELETE' then new_row := pg_catalog.to_jsonb(NEW); end if;
+  target_row := coalesce(new_row, old_row);
+  insert into public.audit_logs (account_id, actor_user_id, action, entity_type, entity_id, details)
+  values (
+    (case when TG_TABLE_NAME = 'accounts' then target_row->>'id' else target_row->>'account_id' end)::uuid,
+    auth.uid(), TG_OP, TG_TABLE_NAME,
+    (case when TG_TABLE_NAME = 'memberships' then target_row->>'user_id' else target_row->>'id' end)::uuid,
+    pg_catalog.jsonb_build_object('old', old_row, 'new', new_row)
+  );
+  return null;
+end;
+$$;
+
+create trigger accounts_stamp before insert or update on public.accounts
+  for each row execute function public.stamp_foundation_row();
+create trigger accounts_audit after insert or update or delete on public.accounts
+  for each row execute function public.audit_foundation_row();
+create trigger memberships_stamp before insert or update on public.memberships
+  for each row execute function public.stamp_foundation_row();
+create trigger memberships_audit after insert or update or delete on public.memberships
+  for each row execute function public.audit_foundation_row();
+create trigger farms_stamp before insert or update on public.farms
+  for each row execute function public.stamp_foundation_row();
+create trigger farms_audit after insert or update or delete on public.farms
+  for each row execute function public.audit_foundation_row();
+create trigger paddocks_stamp before insert or update on public.paddocks
+  for each row execute function public.stamp_foundation_row();
+create trigger paddocks_audit after insert or update or delete on public.paddocks
+  for each row execute function public.audit_foundation_row();
+create trigger management_groups_stamp before insert or update on public.management_groups
+  for each row execute function public.stamp_foundation_row();
+create trigger management_groups_audit after insert or update or delete on public.management_groups
+  for each row execute function public.audit_foundation_row();
+
+revoke all on function public.stamp_foundation_row(), public.audit_foundation_row()
+  from public, anon, authenticated;
 
 create function public.current_user_id()
 returns uuid
@@ -144,7 +224,7 @@ grant select, update on public.accounts to authenticated;
 grant select on public.memberships to authenticated;
 grant select, insert, update, delete on public.farms, public.paddocks,
   public.management_groups to authenticated;
-grant select, insert on public.audit_logs to authenticated;
+grant select on public.audit_logs to authenticated;
 
 revoke all on function public.current_user_id(), public.is_account_member(uuid),
   public.is_account_admin(uuid), public.bootstrap_account(text, text) from public, anon;
@@ -225,9 +305,3 @@ create policy management_groups_delete on public.management_groups
 create policy audit_logs_read on public.audit_logs
   for select to authenticated
   using (public.is_account_admin(account_id));
-create policy audit_logs_insert on public.audit_logs
-  for insert to authenticated
-  with check (
-    public.is_account_member(account_id)
-    and actor_user_id = public.current_user_id()
-  );

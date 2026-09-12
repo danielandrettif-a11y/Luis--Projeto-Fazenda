@@ -19,6 +19,10 @@ class InMemoryAuthGateway implements AuthGateway {
     return this.initialUser
   }
 
+  get subscriptionCount() {
+    return this.listeners.size
+  }
+
   async signIn(email: string) {
     this.currentUser = { id: 'user-1', email }
     this.emit(this.currentUser)
@@ -123,6 +127,22 @@ function renderProvider(gateway: AuthGateway, children: ReactNode = <Consumer />
 }
 
 describe('AuthProvider', () => {
+  test('returns to anonymous state when initial session lookup rejects', async () => {
+    const gateway = new InMemoryAuthGateway(null, Promise.reject(new Error('Session unavailable')))
+    renderProvider(gateway)
+    expect(await screen.findByText('Visitante')).toBeInTheDocument()
+    expect(screen.queryByText('Carregando')).not.toBeInTheDocument()
+  })
+
+  test('releases its auth subscription on unmount', async () => {
+    const gateway = new InMemoryAuthGateway(null)
+    const view = renderProvider(gateway)
+    await screen.findByText('Visitante')
+    expect(gateway.subscriptionCount).toBe(1)
+    view.unmount()
+    expect(gateway.subscriptionCount).toBe(0)
+  })
+
   test('keeps consumers in loading state until the initial session resolves', async () => {
     let resolveInitial!: (user: AuthUser | null) => void
     const initialUser = new Promise<AuthUser | null>((resolve) => {

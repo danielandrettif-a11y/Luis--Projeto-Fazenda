@@ -128,15 +128,10 @@ test('denies anonymous access to account data and privileged functions', async (
 })
 
 test('allows an admin to read their own audit log while hiding another account log', async () => {
-  await database.resetRole()
-  await database.sql(`
-    insert into public.audit_logs (account_id, actor_user_id, action, entity_type, entity_id)
-    values ($1, $2, 'first.created', 'farm', $3), ($4, $5, 'second.created', 'farm', $6)
-  `, [firstAccount.account_id, firstUserId, firstAccount.farm_id,
-    secondAccount.account_id, secondUserId, secondAccount.farm_id])
-  await database.authenticate(firstUserId)
-  const logs = await database.sql<{ action: string }>('select action from public.audit_logs')
-  expect(logs.rows).toEqual([{ action: 'first.created' }])
+  const logs = await database.sql<{ entity_id: string; action: string }>(
+    "select entity_id, action from public.audit_logs where entity_type = 'farms'",
+  )
+  expect(logs.rows).toEqual([{ entity_id: firstAccount.farm_id, action: 'INSERT' }])
 })
 
 test('exposes only the current users memberships and prevents client membership management', async () => {
@@ -225,15 +220,12 @@ test.each(['paddocks', 'management_groups'] as const)(
   },
 )
 
-test('keeps audit records append-only and requires the member to be the actor', async () => {
+test('keeps audit records immutable and disallows all client-authored logs', async () => {
   await authenticateOperator()
-  await database.sql(`insert into public.audit_logs
-    (account_id, actor_user_id, action, entity_type, entity_id)
-    values ($1, $2, 'farm.viewed', 'farm', $3)`,
-  [firstAccount.account_id, operatorUserId, firstAccount.farm_id])
   const operatorLogs = await database.sql('select * from public.audit_logs')
   expect(operatorLogs.rows).toEqual([])
   for (const [accountId, actorId] of [
+    [firstAccount.account_id, operatorUserId],
     [firstAccount.account_id, firstUserId], [secondAccount.account_id, operatorUserId],
   ]) {
     await expect(database.sql(`insert into public.audit_logs
@@ -243,8 +235,8 @@ test('keeps audit records append-only and requires the member to be the actor', 
   }
   await database.resetRole()
   await database.authenticate(firstUserId)
-  const logs = await database.sql<{ actor_user_id: string }>('select actor_user_id from public.audit_logs')
-  expect(logs.rows).toEqual([{ actor_user_id: operatorUserId }])
+  const logs = await database.sql('select * from public.audit_logs')
+  expect(logs.rows).toHaveLength(4)
   await expect(database.sql("update public.audit_logs set action = 'changed'"))
     .rejects.toMatchObject({ code: '42501' })
   await expect(database.sql('delete from public.audit_logs')).rejects.toMatchObject({ code: '42501' })

@@ -45,6 +45,19 @@ test('rejects duplicate farm names within one account', async () => {
   ).rejects.toThrow()
 })
 
+test('rolls back account membership and audit rows when the last bootstrap insert fails', async () => {
+  const userId = '00000000-0000-4000-8000-000000000006'
+  await database.createUser(userId)
+  await database.authenticate(userId)
+  // The valid account and membership are inserted before the invalid farm name.
+  await expect(database.sql("select * from public.bootstrap_account('Conta Valida', 'x')"))
+    .rejects.toMatchObject({ code: '23514' })
+  await database.resetRole()
+  for (const table of ['accounts', 'memberships', 'farms', 'audit_logs']) {
+    expect((await database.sql(`select * from public.${table}`)).rows).toEqual([])
+  }
+})
+
 test('rejects gestation days outside the supported range', async () => {
   const userId = '00000000-0000-4000-8000-000000000003'
   await database.createUser(userId)

@@ -6,6 +6,7 @@ import { useAuth } from '@/features/auth/AuthProvider'
 import type { FarmGateway } from '@/features/farms/farm-gateway'
 import { FarmDashboardPage } from '@/features/farms/FarmDashboardPage'
 import { OnboardingPage } from '@/features/farms/OnboardingPage'
+import { AuthenticatedAppShell } from './AuthenticatedAppShell'
 
 function LoadingPage() {
   return (
@@ -24,26 +25,15 @@ function LoginRoute() {
 }
 
 function ProtectedApplicationRoute({ children }: { children: ReactNode }) {
-  const { authState } = useAuth()
-
-  if (authState.status === 'loading') return <LoadingPage />
-  if (authState.status === 'anonymous') return <Navigate to="/entrar" replace />
-
-  return children
-}
-
-function ProtectedDashboardRoute({ farmGateway }: { farmGateway: FarmGateway }) {
   const { authState, signOut } = useAuth()
 
   if (authState.status === 'loading') return <LoadingPage />
   if (authState.status === 'anonymous') return <Navigate to="/entrar" replace />
 
   return (
-    <FarmDashboardPage
-      gateway={farmGateway}
-      user={authState.user}
-      onSignOut={signOut}
-    />
+    <AuthenticatedAppShell user={authState.user} onSignOut={signOut}>
+      {children}
+    </AuthenticatedAppShell>
   )
 }
 
@@ -54,7 +44,11 @@ function ApplicationRouteDefinitions({ farmGateway }: { farmGateway: FarmGateway
       <Route path="/entrar" element={<LoginRoute />} />
       <Route
         path="/app"
-        element={<ProtectedDashboardRoute farmGateway={farmGateway} />}
+        element={
+          <ProtectedApplicationRoute>
+            <FarmDashboardPage gateway={farmGateway} />
+          </ProtectedApplicationRoute>
+        }
       />
       <Route
         path="/configuracao-inicial"

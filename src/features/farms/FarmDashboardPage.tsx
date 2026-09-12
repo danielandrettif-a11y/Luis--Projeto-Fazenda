@@ -1,20 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
-import type { AuthUser } from '@/features/auth/auth-gateway'
 import type { FarmGateway } from './farm-gateway'
 
 const futureModules = ['Rebanho', 'Reprodução', 'Sanidade', 'Relatórios'] as const
 
-type FarmDashboardPageProps = {
-  gateway: FarmGateway
-  user?: AuthUser
-  onSignOut?: () => Promise<void>
-}
-
-export function FarmDashboardPage({ gateway, user, onSignOut }: FarmDashboardPageProps) {
-  const [signOutError, setSignOutError] = useState<string | null>(null)
-  const [isSigningOut, setIsSigningOut] = useState(false)
+export function FarmDashboardPage({ gateway }: { gateway: FarmGateway }) {
   const farmsQuery = useQuery({
     queryKey: ['farms'],
     queryFn: () => gateway.listFarms(),
@@ -42,19 +32,6 @@ export function FarmDashboardPage({ gateway, user, onSignOut }: FarmDashboardPag
     return <Navigate to="/configuracao-inicial" replace />
   }
 
-  async function handleSignOut() {
-    if (!onSignOut) return
-    setSignOutError(null)
-    setIsSigningOut(true)
-    try {
-      await onSignOut()
-    } catch {
-      setSignOutError('Não foi possível sair. Tente novamente.')
-    } finally {
-      setIsSigningOut(false)
-    }
-  }
-
   return (
     <div className="min-h-screen bg-slate-50 lg:grid lg:grid-cols-[16rem_1fr]">
       <aside className="border-b border-slate-200 bg-white px-4 py-5 lg:min-h-screen lg:border-b-0 lg:border-r lg:px-6">
@@ -75,34 +52,14 @@ export function FarmDashboardPage({ gateway, user, onSignOut }: FarmDashboardPag
       </aside>
 
       <main className="px-4 py-8 sm:px-6 lg:px-10">
-        <header className="mx-auto flex max-w-6xl flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-green-700">Visão geral da conta</p>
-            <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900">
-              Gestão da Fazenda
-            </h1>
-            <p className="mt-2 text-sm text-slate-600">
-              Acompanhe as configurações das fazendas disponíveis para sua conta.
-            </p>
-          </div>
-          {user && onSignOut && (
-            <div className="flex flex-col items-start gap-2 sm:items-end">
-              <p className="text-sm text-slate-600">{user.email}</p>
-              <button
-                type="button"
-                disabled={isSigningOut}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={() => void handleSignOut()}
-              >
-                {isSigningOut ? 'Saindo…' : 'Sair'}
-              </button>
-              {signOutError && (
-                <p role="alert" className="text-sm text-red-700">
-                  {signOutError}
-                </p>
-              )}
-            </div>
-          )}
+        <header className="mx-auto max-w-6xl">
+          <p className="text-sm font-semibold text-green-700">Visão geral da conta</p>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900">
+            Gestão da Fazenda
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Acompanhe as configurações das fazendas disponíveis para sua conta.
+          </p>
         </header>
 
         <section className="mx-auto mt-8 max-w-6xl" aria-labelledby="farms-title">

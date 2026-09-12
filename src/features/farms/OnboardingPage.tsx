@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
@@ -10,6 +11,7 @@ type OnboardingValues = z.infer<typeof bootstrapAccountSchema>
 
 export function OnboardingPage({ gateway }: { gateway: FarmGateway }) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [submitError, setSubmitError] = useState<string | null>(null)
   const {
     register,
@@ -24,6 +26,7 @@ export function OnboardingPage({ gateway }: { gateway: FarmGateway }) {
     setSubmitError(null)
     try {
       await gateway.bootstrapAccount(values)
+      queryClient.removeQueries({ queryKey: ['farms'], exact: true })
       navigate('/app', { replace: true })
     } catch {
       setSubmitError('Não foi possível criar a conta. Tente novamente.')

@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -37,13 +38,17 @@ class InMemoryFarmGateway implements FarmGateway {
 }
 
 function renderOnboarding(gateway: FarmGateway) {
+  const queryClient = new QueryClient()
+
   return render(
-    <MemoryRouter initialEntries={['/configuracao-inicial']}>
-      <Routes>
-        <Route path="/configuracao-inicial" element={<OnboardingPage gateway={gateway} />} />
-        <Route path="/app" element={<h1>Painel da fazenda</h1>} />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/configuracao-inicial']}>
+        <Routes>
+          <Route path="/configuracao-inicial" element={<OnboardingPage gateway={gateway} />} />
+          <Route path="/app" element={<h1>Painel da fazenda</h1>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   )
 }
 

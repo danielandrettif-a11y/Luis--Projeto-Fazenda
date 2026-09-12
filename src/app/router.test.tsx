@@ -87,6 +87,58 @@ class SessionSwitchFarmGateway implements FarmGateway {
   }
 }
 
+class DelayedPostBootstrapFarmGateway implements FarmGateway {
+  private bootstrappedFarm: FarmSummary | null = null
+  private readonly delayedReload: Promise<FarmSummary[]>
+  private resolveReload: ((farms: FarmSummary[]) => void) | null = null
+
+  constructor() {
+    this.delayedReload = new Promise((resolve) => {
+      this.resolveReload = resolve
+    })
+  }
+
+  async listFarms() {
+    return this.bootstrappedFarm ? this.delayedReload : []
+  }
+
+  async bootstrapAccount(input: BootstrapAccountInput) {
+    const result = { accountId: 'account-1', farmId: 'farm-1' }
+    this.bootstrappedFarm = {
+      id: result.farmId,
+      accountId: result.accountId,
+      name: input.firstFarmName,
+      gestationDays: 283,
+    }
+    return result
+  }
+
+  finishFarmReload() {
+    if (!this.resolveReload || !this.bootstrappedFarm) throw new Error('reload is not ready')
+    this.resolveReload([this.bootstrappedFarm])
+  }
+}
+
+class PendingRouteFarmGateway implements FarmGateway {
+  async listFarms() {
+    return new Promise<FarmSummary[]>(() => undefined)
+  }
+
+  async bootstrapAccount() {
+    return { accountId: 'account-1', farmId: 'farm-1' }
+  }
+}
+
+class FailingRouteFarmGateway implements FarmGateway {
+  async listFarms(): Promise<FarmSummary[]> {
+    throw new Error('database detail: token=secret')
+  }
+
+  async bootstrapAccount() {
+    return { accountId: 'account-1', farmId: 'farm-1' }
+  }
+}
+
 function renderRoute(
   path: string,
   gateway: AuthGateway,
@@ -164,6 +216,98 @@ describe('application routes', () => {
     await user.click(screen.getByRole('button', { name: 'Criar conta' }))
 
     expect(await screen.findByRole('heading', { name: 'Sede Nova' })).toBeInTheDocument()
+  })
+
+  test('waits for a fresh farm read after setup instead of returning to onboarding', async () => {
+    const user = userEvent.setup()
+    const farmGateway = new DelayedPostBootstrapFarmGateway()
+    renderRoute(
+      '/app',
+      new RouteAuthGateway({ id: 'user-1', email: 'ana@fazenda.com' }),
+      farmGateway,
+    )
+
+    await user.type(await screen.findByLabelText('Nome da conta'), 'Fazenda Boa Vista')
+    await user.type(screen.getByLabelText('Nome da fazenda'), 'Sede Demorada')
+    await user.click(screen.getByRole('button', { name: 'Criar conta' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Carregando fazendas…')
+    expect(screen.queryByLabelText('Nome da conta')).not.toBeInTheDocument()
+
+    farmGateway.finishFarmReload()
+
+    expect(await screen.findByRole('heading', { name: 'Sede Demorada' })).toBeInTheDocument()
+  })
+
+  test('allows logout while farms are loading', async () => {
+    const user = userEvent.setup()
+    renderRoute(
+      '/app',
+      new RouteAuthGateway({ id: 'user-1', email: 'ana@fazenda.com' }),
+      new PendingRouteFarmGateway(),
+    )
+
+    expect(await screen.findByText('ana@fazenda.com')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Carregando fazendas…')
+    await user.click(screen.getByRole('button', { name: 'Sair' }))
+
+    expect(await screen.findByRole('heading', { name: 'Entrar' })).toBeInTheDocument()
+  })
+
+  test('allows logout after farm loading fails', async () => {
+    const user = userEvent.setup()
+    renderRoute(
+      '/app',
+      new RouteAuthGateway({ id: 'user-1', email: 'ana@fazenda.com' }),
+      new FailingRouteFarmGateway(),
+    )
+
+    expect(await screen.findByRole('alert', undefined, { timeout: 12_000 })).toHaveTextContent(
+      'Não foi possível carregar as fazendas. Tente novamente.',
+    )
+    expect(screen.getByText('ana@fazenda.com')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Sair' }))
+
+    expect(await screen.findByRole('heading', { name: 'Entrar' })).toBeInTheDocument()
+  }, 15_000)
+
+  test('allows logout after an empty farm list redirects to onboarding', async () => {
+    const user = userEvent.setup()
+    renderRoute(
+      '/app',
+      new RouteAuthGateway({ id: 'user-1', email: 'ana@fazenda.com' }),
+      new RouteFarmGateway([]),
+    )
+
+    expect(await screen.findByLabelText('Nome da conta')).toBeInTheDocument()
+    expect(screen.getByText('ana@fazenda.com')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Sair' }))
+
+    expect(await screen.findByRole('heading', { name: 'Entrar' })).toBeInTheDocument()
+  })
+
+  test('keeps onboarding and a stable message when logout fails', async () => {
+    const user = userEvent.setup()
+    renderRoute(
+      '/app',
+      new RouteAuthGateway(
+        { id: 'user-1', email: 'ana@fazenda.com' },
+        undefined,
+        new Error('network detail: token=secret'),
+      ),
+      new RouteFarmGateway([]),
+    )
+
+    expect(await screen.findByLabelText('Nome da conta')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Sair' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Não foi possível sair. Tente novamente.',
+    )
+    expect(screen.getByLabelText('Nome da conta')).toBeInTheDocument()
+    expect(screen.getByText('ana@fazenda.com')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sair' })).toBeEnabled()
+    expect(screen.queryByText(/network detail|token=secret/i)).not.toBeInTheDocument()
   })
 
   test('signs out from the protected application and returns to login', async () => {

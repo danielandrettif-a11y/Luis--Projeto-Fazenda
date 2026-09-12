@@ -1,0 +1,18 @@
+{
+  "name": "Gestão da Fazenda",
+  "short_name": "Fazenda",
+  "description": "Gestão responsiva e segura de propriedades rurais.",
+  "start_url": "/",
+  "display": "standalone",
+  "lang": "pt-BR",
+  "background_color": "#f8fafc",
+  "theme_color": "#166534",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

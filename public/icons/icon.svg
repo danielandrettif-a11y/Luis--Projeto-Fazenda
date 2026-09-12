@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Gestão da Fazenda</title>
+  <desc id="description">Celeiro branco sobre campo verde</desc>
+  <rect width="512" height="512" rx="96" fill="#166534"/>
+  <path d="M96 245 256 112l160 133v171h-92V300H188v116H96V245Z" fill="#fff"/>
+  <path d="M225 416V340h62v76h-62Z" fill="#166534"/>
+  <path d="M132 194h248v54H132z" fill="#14532d"/>
+</svg>

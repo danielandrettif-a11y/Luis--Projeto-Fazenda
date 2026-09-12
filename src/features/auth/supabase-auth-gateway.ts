@@ -38,7 +38,7 @@ export class SupabaseAuthGateway implements AuthGateway {
 
   async signOut(): Promise<void> {
     const { error } = await this.client.auth.signOut()
-    if (error) throw new Error('Não foi possível sair. Tente novamente.')
+    if (error) throw new AuthError('sign_out_failed')
   }
 
   onAuthStateChange(listener: AuthStateListener): () => void {

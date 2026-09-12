@@ -11,7 +11,11 @@ afterEach(cleanup)
 class RouteAuthGateway implements AuthGateway {
   private listeners = new Set<(user: AuthUser | null) => void>()
 
-  constructor(user: AuthUser | null, private initialUser = Promise.resolve(user)) {}
+  constructor(
+    user: AuthUser | null,
+    private initialUser = Promise.resolve(user),
+    private signOutFailure?: unknown,
+  ) {}
 
   getCurrentUser() {
     return this.initialUser
@@ -24,6 +28,7 @@ class RouteAuthGateway implements AuthGateway {
   }
 
   async signOut() {
+    if (this.signOutFailure) throw this.signOutFailure
     for (const listener of this.listeners) listener(null)
   }
 
@@ -81,5 +86,27 @@ describe('application routes', () => {
     await user.click(await screen.findByRole('button', { name: 'Sair' }))
 
     expect(await screen.findByRole('heading', { name: 'Entrar' })).toBeInTheDocument()
+  })
+
+  test('keeps the authenticated area and allows retry when sign-out fails', async () => {
+    const user = userEvent.setup()
+    renderRoute(
+      '/app',
+      new RouteAuthGateway(
+        { id: 'user-1', email: 'ana@fazenda.com' },
+        undefined,
+        new Error('network detail: token=secret'),
+      ),
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'Sair' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Não foi possível sair. Tente novamente.',
+    )
+    expect(screen.getByRole('heading', { name: 'Gestão da Fazenda' })).toBeInTheDocument()
+    expect(screen.getByText('ana@fazenda.com')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sair' })).toBeEnabled()
+    expect(screen.queryByText(/network detail|token=secret/i)).not.toBeInTheDocument()
   })
 })

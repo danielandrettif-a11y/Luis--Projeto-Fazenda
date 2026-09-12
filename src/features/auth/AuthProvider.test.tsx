@@ -41,6 +41,45 @@ class InMemoryAuthGateway implements AuthGateway {
   }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve
+  })
+  return { promise, resolve }
+}
+
+class ControlledAuthGateway implements AuthGateway {
+  private listeners = new Set<(user: AuthUser | null) => void>()
+
+  constructor(
+    private initialUser: AuthUser | null,
+    readonly pendingSignIn = deferred<AuthUser>(),
+    readonly pendingSignOut = deferred<void>(),
+  ) {}
+
+  async getCurrentUser() {
+    return this.initialUser
+  }
+
+  signIn() {
+    return this.pendingSignIn.promise
+  }
+
+  signOut() {
+    return this.pendingSignOut.promise
+  }
+
+  onAuthStateChange(listener: (user: AuthUser | null) => void) {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  emit(user: AuthUser | null) {
+    for (const listener of this.listeners) listener(user)
+  }
+}
+
 function Consumer() {
   const { authState, signOut } = useAuth()
 
@@ -50,6 +89,28 @@ function Consumer() {
   return (
     <div>
       <p>{authState.user.email}</p>
+      <button type="button" onClick={() => void signOut()}>
+        Sair
+      </button>
+    </div>
+  )
+}
+
+function OperationsConsumer() {
+  const { authState, signIn, signOut } = useAuth()
+
+  return (
+    <div>
+      <p>
+        {authState.status === 'authenticated'
+          ? authState.user.email
+          : authState.status === 'anonymous'
+            ? 'Visitante'
+            : 'Carregando'}
+      </p>
+      <button type="button" onClick={() => void signIn('ana@fazenda.com', 'segredo-forte')}>
+        Entrar
+      </button>
       <button type="button" onClick={() => void signOut()}>
         Sair
       </button>
@@ -101,5 +162,35 @@ describe('AuthProvider', () => {
     await user.click(await screen.findByRole('button', { name: 'Sair' }))
 
     expect(await screen.findByText('Visitante')).toBeInTheDocument()
+  })
+
+  test('does not let a late sign-in result overwrite newer auth events', async () => {
+    const user = userEvent.setup()
+    const gateway = new ControlledAuthGateway(null)
+    renderProvider(gateway, <OperationsConsumer />)
+
+    await screen.findByText('Visitante')
+    await user.click(screen.getByRole('button', { name: 'Entrar' }))
+    act(() => gateway.emit({ id: 'user-2', email: 'outra@fazenda.com' }))
+    act(() => gateway.emit(null))
+    await act(async () => {
+      gateway.pendingSignIn.resolve({ id: 'user-1', email: 'ana@fazenda.com' })
+    })
+
+    expect(screen.getByText('Visitante')).toBeInTheDocument()
+    expect(screen.queryByText('ana@fazenda.com')).not.toBeInTheDocument()
+  })
+
+  test('does not let a late sign-out result overwrite a newer authenticated event', async () => {
+    const user = userEvent.setup()
+    const gateway = new ControlledAuthGateway({ id: 'user-1', email: 'ana@fazenda.com' })
+    renderProvider(gateway, <OperationsConsumer />)
+
+    await user.click(await screen.findByRole('button', { name: 'Sair' }))
+    act(() => gateway.emit({ id: 'user-2', email: 'outra@fazenda.com' }))
+    await act(async () => gateway.pendingSignOut.resolve())
+
+    expect(screen.getByText('outra@fazenda.com')).toBeInTheDocument()
+    expect(screen.queryByText('Visitante')).not.toBeInTheDocument()
   })
 })

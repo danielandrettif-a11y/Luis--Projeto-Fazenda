@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { AuthError, type AuthGateway, type AuthState, type AuthUser } from './auth-gateway'
 
 export type AuthContextValue = {
@@ -15,6 +23,7 @@ function stateFor(user: AuthUser | null): AuthState {
 
 export function AuthProvider({ gateway, children }: { gateway: AuthGateway; children: ReactNode }) {
   const [authState, setAuthState] = useState<AuthState>({ status: 'loading' })
+  const authEventRevision = useRef(0)
 
   useEffect(() => {
     let active = true
@@ -22,6 +31,7 @@ export function AuthProvider({ gateway, children }: { gateway: AuthGateway; chil
 
     const unsubscribe = gateway.onAuthStateChange((user) => {
       receivedAuthEvent = true
+      authEventRevision.current += 1
       if (active) setAuthState(stateFor(user))
     })
 
@@ -44,17 +54,28 @@ export function AuthProvider({ gateway, children }: { gateway: AuthGateway; chil
     () => ({
       authState,
       async signIn(email, password) {
+        const startingRevision = authEventRevision.current
         try {
           const user = await gateway.signIn(email, password)
-          setAuthState({ status: 'authenticated', user })
+          if (authEventRevision.current === startingRevision) {
+            setAuthState({ status: 'authenticated', user })
+          }
         } catch (error) {
           if (error instanceof AuthError) throw error
           throw new AuthError('sign_in_failed')
         }
       },
       async signOut() {
-        await gateway.signOut()
-        setAuthState({ status: 'anonymous' })
+        const startingRevision = authEventRevision.current
+        try {
+          await gateway.signOut()
+          if (authEventRevision.current === startingRevision) {
+            setAuthState({ status: 'anonymous' })
+          }
+        } catch (error) {
+          if (error instanceof AuthError && error.code === 'sign_out_failed') throw error
+          throw new AuthError('sign_out_failed')
+        }
       },
     }),
     [authState, gateway],

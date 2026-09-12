@@ -65,4 +65,15 @@ describe('SupabaseAuthGateway', () => {
 
     await expect(attempt).rejects.toEqual(new AuthError('sign_in_failed'))
   })
+
+  test('translates sign-out failures without exposing the Supabase error', async () => {
+    const client = createTestClient()
+    vi.spyOn(client.auth, 'signOut').mockResolvedValue({
+      error: new AuthApiError('network detail: token=secret', 503, 'unexpected_failure'),
+    })
+
+    const attempt = new SupabaseAuthGateway(client).signOut()
+
+    await expect(attempt).rejects.toEqual(new AuthError('sign_out_failed'))
+  })
 })

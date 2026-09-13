@@ -1,0 +1,13 @@
+# Local services only. Hosted projects require the README dashboard procedure.
+project_id = "gestao-da-fazenda"
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173"]
+enable_signup = false
+enable_anonymous_sign_ins = false
+
+[auth.email]
+# Keep email login/invites enabled; the global auth setting blocks public signup.
+enable_signup = true
